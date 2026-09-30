@@ -33,7 +33,7 @@ no mocks.
 python sensor_gap_finder.py --lat 36.95 --lon -111.50 --radius-km 60
 
 # Explicit site list (handy when the site service is firewalled; still live):
-python sensor_gap_finder.py --sites 09380000,09421500,09402500
+python sensor_gap_finder.py --sites 09380000,09402500
 
 # Emit raw #450 records only:
 python sensor_gap_finder.py --lat 36.95 --lon -111.50 --json
@@ -45,7 +45,7 @@ python sensor_gap_finder.py --lat 36.95 --lon -111.50 --json
 {
   "recommended_placement": { "lat": 36.91, "lon": -111.52 },
   "gap_km": 18.4,
-  "between": ["09380000", "09421500"],
+  "between": ["09380000", "09402500"],
   "sensor_count": 7,
   "readings": [
     {
