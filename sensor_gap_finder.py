@@ -190,7 +190,6 @@ def main():
 
     sensors = []
     if args.sites:
-        have_coords = True
         for sid in args.sites.split(","):
             sid = sid.strip()
             if not sid:
@@ -200,27 +199,6 @@ def main():
                 "id": sid, "name": f"USGS {sid}", "lat": lat, "lon": lon,
                 "value": val, "unit": "ft3/s", "ts": ts,
             })
-            if lat is None:
-                have_coords = False
-        # Without coords we cannot compute gaps; report what we have.
-        if not have_coords:
-            sys.stderr.write("[warn] --sites mode has no coordinates; "
-                            "emit latest readings only.\n")
-            out = []
-            for s in sensors:
-                if s["value"] is not None:
-                    out.append(to_450({
-                        "timestamp": s["ts"] or datetime.now(timezone.utc).isoformat(),
-                        "lat": 0.0, "lon": 0.0,
-                        "unit": "ft3/s", "value": s["value"],
-                        "sensor_id": s["id"], "source": "USGS_NWIS",
-                        "parameter": "streamflow", "parameter_code": DISCHARGE_CD,
-                    }))
-            if args.json:
-                print(json.dumps(out, indent=2))
-            else:
-                print(json.dumps({"readings": out, "note": "coordinates unavailable in --sites mode"}, indent=2))
-            return
 
     if args.lat is not None and args.lon is not None:
         ts_list = discover_sites(args.lat, args.lon, args.radius_km)
@@ -254,30 +232,38 @@ def main():
         print(json.dumps({"error": "no sensors discovered", "hint": "check network egress to USGS/EPA"}, indent=2))
         return
 
-    gap = find_gap(args.lat or 0.0, args.lon or 0.0, sensors)
+    # Always emit per-sensor #450 readings (the live values we fetched).
     recs = []
+    for s in sensors:
+        if s["value"] is not None:
+            recs.append(to_450({
+                "timestamp": s["ts"] or datetime.now(timezone.utc).isoformat(),
+                "lat": s["lat"] or 0.0, "lon": s["lon"] or 0.0,
+                "unit": "ft3/s", "value": s["value"],
+                "sensor_id": s["id"], "source": "USGS_NWIS",
+                "parameter": "streamflow", "parameter_code": DISCHARGE_CD,
+            }))
+
+    gap = find_gap(args.lat or 0.0, args.lon or 0.0, sensors)
+    result = {"sensor_count": len(sensors), "readings": recs}
     if gap:
         now = datetime.now(timezone.utc).isoformat()
-        recs.append(to_450({
+        gap_rec = to_450({
             "timestamp": now, "lat": gap["mid_lat"], "lon": gap["mid_lon"],
             "unit": "km", "value": round(gap["gap_km"], 3),
             "sensor_id": f"GAP:{gap['a']['id']}->{gap['b']['id']}",
             "source": "sensor_gap_finder",
             "parameter": "upstream_sensor_gap", "parameter_code": "GAP_KM",
-        }))
-        result = {
-            "recommended_placement": {"lat": gap["mid_lat"], "lon": gap["mid_lon"]},
-            "gap_km": round(gap["gap_km"], 3),
-            "between": [gap["a"]["id"], gap["b"]["id"]],
-            "sensor_count": len(sensors),
-            "readings": recs,
-        }
+        })
+        result["recommended_placement"] = {"lat": gap["mid_lat"], "lon": gap["mid_lon"]}
+        result["gap_km"] = round(gap["gap_km"], 3)
+        result["between"] = [gap["a"]["id"], gap["b"]["id"]]
+        result["readings"] = recs + [gap_rec]
     else:
-        result = {"error": "insufficient upstream sensors to compute a gap",
-                  "sensor_count": len(sensors)}
+        result["note"] = "insufficient upstream sensors to compute a gap (need >=2 with coordinates)"
 
     if args.json:
-        print(json.dumps(recs, indent=2))
+        print(json.dumps(result["readings"], indent=2))
     else:
         print(json.dumps(result, indent=2))
 
